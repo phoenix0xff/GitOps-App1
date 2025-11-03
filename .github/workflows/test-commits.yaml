@@ -43,7 +43,7 @@ jobs:
         env:
           PAT: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         run: |
-          # Ensure we're on main; adjust if you use a different default branch
+          # always assuming we are on main
           git checkout main
           git pull --rebase
           git remote set-url origin "https://x-access-token:${PAT}@github.com/${{ github.repository }}.git"
