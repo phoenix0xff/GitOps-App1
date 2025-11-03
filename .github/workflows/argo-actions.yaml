@@ -1,0 +1,88 @@
+name: GitOps pipeline with ArgoCD (pull-based)
+
+on:
+  push:
+    branches: main
+
+env:
+  # The two env variables below need to be modified for each source code repo
+  IMAGE_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/my-app
+  MANIFEST_PATH: manifest/app1/deployment.yaml
+
+  PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+  GIT_EMAIL: ${{ secrets.GIT_EMAIL }}
+  GIT_USERNAME: ${{ secrets.GIT_USERNAME }}
+  COMMIT_SHA: ${{ github.sha }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Log in to DockerHub
+        run: echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+
+      - name: Build Docker image (with OCI labels)
+        run: |
+          docker build \
+            --label "org.opencontainers.image.revision=$COMMIT_SHA" \
+            --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            -t "$IMAGE_REPO:$COMMIT_SHA" .
+
+      - name: Scan Docker image with Trivy
+        run: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image "$IMAGE_REPO:$COMMIT_SHA"
+
+      - name: Push Docker image
+        run: docker push "$IMAGE_REPO:$COMMIT_SHA"
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout manifests repo
+        uses: actions/checkout@v4
+        with:
+          repository: phoenix0xff/GitOps
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "$GIT_USERNAME"
+          git config user.email "$GIT_EMAIL"
+          git pull --rebase
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Add commit annotations & set image
+        run: |
+          yq -i '
+            .metadata.annotations."dora.dev/source-commit" = strenv(COMMIT_SHA) |
+            .spec.template.metadata.annotations."org.opencontainers.image.revision" = strenv(COMMIT_SHA) |
+            .spec.template.spec.containers[0].image = strenv(IMAGE_REPO) + ":" + strenv(COMMIT_SHA)
+          ' "$MANIFEST_PATH"
+
+      - name: Commit and push updated manifest
+        run: |
+          git add "$MANIFEST_PATH"
+          git commit -m "Update $(basename $(dirname $MANIFEST_PATH)) image to $COMMIT_SHA" || echo "No changes to commit"
+          git push origin main
