@@ -74,10 +74,9 @@ jobs:
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
-      - name: Add commit annotations & set image
+      - name: Add commit annotation & set image
         run: |
           yq -i '
-            .metadata.annotations."dora.dev/source-commit" = strenv(COMMIT_SHA) |
             .spec.template.metadata.annotations."org.opencontainers.image.revision" = strenv(COMMIT_SHA) |
             .spec.template.spec.containers[0].image = strenv(IMAGE_REPO) + ":" + strenv(BUILD_TAG)
           ' "$MANIFEST_PATH"
