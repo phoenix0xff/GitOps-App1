@@ -6,7 +6,7 @@ on:
 
 env:
   # The two env variables below need to be modified for each source code repo
-  IMAGE_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/my-app
+  IMAGE_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/my-app1
   MANIFEST_PATH: manifest/app1/deployment.yaml
 
   PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
